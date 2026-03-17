@@ -5,9 +5,10 @@ symmetric-antisymmetric spectral modifications.
 
 import torch
 import torch.nn as nn
-from transformers import AutoTokenizer, AutoModelForCausalLM, GenerationConfig
+from transformers import GenerationConfig
 from typing import Optional, Dict, List, Callable, Any
 from .decompose import AttentionDecomposer
+from .extract import AttentionExtractor
 
 
 class SteeringConfig:
@@ -52,14 +53,29 @@ class AttentionSteerer:
         self,
         model: Any,
         tokenizer: Any,
+        processor: Any = None,
         device: Optional[str] = None,
+        is_vlm: bool = False,
     ):
         self.model = model
         self.tokenizer = tokenizer
+        self.processor = processor
         self.device = device or next(model.parameters()).device
+        self.is_vlm = is_vlm
         self.decomposer = AttentionDecomposer()
         self._hooks: List[torch.utils.hooks.RemovableHook] = []
         self._steering_log: Dict[int, Dict] = {}
+
+    @classmethod
+    def from_extractor(cls, extractor: AttentionExtractor) -> "AttentionSteerer":
+        """Create a steerer from an existing AttentionExtractor (recommended for VLMs)."""
+        return cls(
+            model=extractor.model,
+            tokenizer=extractor.tokenizer,
+            processor=extractor.processor,
+            device=extractor.device,
+            is_vlm=extractor.is_vlm,
+        )
 
     @classmethod
     def from_pretrained(
@@ -68,20 +84,9 @@ class AttentionSteerer:
         device: Optional[str] = None,
         torch_dtype: Optional[torch.dtype] = None,
     ) -> "AttentionSteerer":
-        device = device or ("cuda" if torch.cuda.is_available() else "cpu")
-        dtype = torch_dtype or torch.float32
-
-        tokenizer = AutoTokenizer.from_pretrained(model_name_or_path)
-        if tokenizer.pad_token is None:
-            tokenizer.pad_token = tokenizer.eos_token
-
-        model = AutoModelForCausalLM.from_pretrained(
-            model_name_or_path,
-            torch_dtype=dtype,
-            output_attentions=True,
-        ).to(device)
-        model.eval()
-        return cls(model, tokenizer, device)
+        """Load model and create steerer. Handles both LLMs and VLMs."""
+        extractor = AttentionExtractor(model_name_or_path, device=device, torch_dtype=torch_dtype)
+        return cls.from_extractor(extractor)
 
     def _get_attention_modules(self) -> List[nn.Module]:
         """
