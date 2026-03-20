@@ -77,10 +77,22 @@ def load_crows_pairs(
         DataFrame with columns: sent_more (stereotypical), sent_less (anti-stereotypical),
         bias_type, stereo_antistereo (direction label).
     """
-    from datasets import load_dataset
+    _CSV_URL = (
+        "https://raw.githubusercontent.com/nyu-mll/crows-pairs/"
+        "master/data/crows_pairs_anonymized.csv"
+    )
 
-    dataset = load_dataset("nyu-mll/crows_pairs", split="test")
-    df = pd.DataFrame(dataset)
+    try:
+        from datasets import load_dataset
+        try:
+            dataset = load_dataset("nyu-mll/crows_pairs", split="test")
+        except (RuntimeError, ValueError):
+            # Newer datasets library dropped script-based loaders
+            dataset = load_dataset("csv", data_files=_CSV_URL, split="train")
+        df = pd.DataFrame(dataset)
+    except Exception:
+        # Ultimate fallback: load CSV directly with pandas
+        df = pd.read_csv(_CSV_URL)
 
     if categories:
         df = df[df["bias_type"].isin(categories)].reset_index(drop=True)
